@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const type = formData.get('type') as string;
+    const formExamId = formData.get('examId') as string;
 
     if (!file) return NextResponse.json({ error: '请上传文件' }, { status: 400 });
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
         const student = db.prepare('SELECT id FROM students WHERE student_id = ?').get(String(sid)) as any;
         if (student) {
           const subjects = ['语文', '数学', '英语', '物理', '化学', '生物'];
-          const examId = row['考试ID'] || row.exam_id || 0;
+          const examId = row['考试ID'] || row.exam_id || formExamId || 0;
           for (const sub of subjects) {
             if (row[sub] !== undefined) {
               stmt.run(student.id, examId, sub, Number(row[sub]));

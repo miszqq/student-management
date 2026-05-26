@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const searchParams = request.nextUrl.searchParams;
+    const type = searchParams.get('type');
+    const examId = searchParams.get('examId');
+
+    if (type === 'byexam' && examId) {
+      const scores = db.prepare(`
+        SELECT s.id as student_id, s.name, s.class,
+          json_group_array(json_object('subject', sc.subject, 'score', sc.score)) as subjects
+        FROM students s
+        LEFT JOIN scores sc ON s.id = sc.student_id AND sc.exam_id = ?
+        GROUP BY s.id
+        ORDER BY s.class, s.student_id
+      `).all(Number(examId));
+      return NextResponse.json(scores);
+    }
+
     const scores = db.prepare(`
       SELECT s.id, s.name, s.class, s.student_id as studentId,
         e.name as exam_name, e.id as exam_id,

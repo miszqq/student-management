@@ -7,12 +7,12 @@ export async function PUT(
 ) {
   try {
     const { id } = await context.params;
-    const { name, class: className, studentId, gender } = await request.json();
+    const { name, class: className, studentId, gender, grade } = await request.json();
 
     db.prepare(`
-      UPDATE students SET name = ?, class = ?, student_id = ?, gender = ?
+      UPDATE students SET name = ?, class = ?, student_id = ?, gender = ?, grade = ?
       WHERE id = ?
-    `).run(name, className, studentId, gender, id);
+    `).run(name, className, studentId, gender, grade || '', id);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

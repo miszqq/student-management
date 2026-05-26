@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物'];
-const GRADES = ['高一', '高二', '高三'];
+const GRADES = ['初一', '初二', '初三'];
+const MAX_SCORE_SUBJECTS: Record<string, number> = { '语文': 120, '数学': 120, '英语': 120 };
+const getMaxScore = (sub: string) => MAX_SCORE_SUBJECTS[sub] || 100;
 
 // ====================== Dashboard Shell ======================
 export default function DashboardPage() {
@@ -32,14 +34,20 @@ export default function DashboardPage() {
   if (!user) return null;
   const isAdmin = user.role === 'admin';
 
-  const tabs = [
-    { key: 'students', label: '学生管理' },
-    { key: 'exams', label: '考试管理' },
-    { key: 'scores', label: '成绩录入' },
-    { key: 'compare', label: '成绩对比' },
-    { key: 'stats', label: '统计面板' },
-  ];
-  if (isAdmin) tabs.push({ key: 'users', label: '用户管理' });
+  const tabs = isAdmin
+    ? [
+        { key: 'students', label: '学生管理' },
+        { key: 'exams', label: '考试管理' },
+        { key: 'scores', label: '成绩录入' },
+        { key: 'compare', label: '成绩对比' },
+        { key: 'stats', label: '统计面板' },
+        { key: 'users', label: '用户管理' },
+      ]
+    : [
+        { key: 'myscores', label: '我的成绩' },
+        { key: 'analysis', label: '成绩分析' },
+        { key: 'compare', label: '成绩对比' },
+      ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -70,7 +78,9 @@ export default function DashboardPage() {
         {activeTab === 'students' && <StudentSection students={students} onUpdate={fetchStudents} isAdmin={isAdmin} />}
         {activeTab === 'exams' && <ExamSection />}
         {activeTab === 'scores' && <ScoreSection students={students} />}
-        {activeTab === 'compare' && <CompareSection />}
+        {activeTab === 'myscores' && <MyScoresSection user={user} />}
+        {activeTab === 'analysis' && <MyAnalysisSection user={user} />}
+        {activeTab === 'compare' && <CompareSection user={user} />}
         {activeTab === 'stats' && <StatsSection />}
         {activeTab === 'users' && isAdmin && <UserSection students={students} />}
       </div>
@@ -317,6 +327,118 @@ function ExamSection() {
   );
 }
 
+// ====================== My Scores (Student View) ======================
+function MyScoresSection({ user }: any) {
+  const [exams, setExams] = useState<any[]>([]);
+  const [selectedExam, setSelectedExam] = useState('');
+  const [scores, setScores] = useState<Record<string, number>>({});
+
+  useEffect(() => { fetch('/api/exams').then(r => r.json()).then(setExams); }, []);
+
+  const loadScores = async () => {
+    if (!selectedExam) return;
+    const res = await fetch(`/api/scores?type=byexam&examId=${selectedExam}`);
+    const data = await res.json();
+    const myStudent = data.find((d: any) => d.student_id === user.student_id);
+    if (myStudent) {
+      try {
+        const subs = JSON.parse(myStudent.subjects || '[]');
+        const map: Record<string, number> = {};
+        subs.forEach((s: any) => { if (s.subject) map[s.subject] = s.score; });
+        setScores(map);
+      } catch (e) {}
+    } else {
+      setScores({});
+    }
+  };
+
+  useEffect(() => { loadScores(); }, [selectedExam]);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <h2 className="text-lg font-bold mb-4">我的成绩</h2>
+      <div className="mb-6">
+        <label className="text-xs text-gray-500 mb-1 block">选择考试</label>
+        <select className="w-full px-3 py-2 border rounded-lg text-sm" value={selectedExam} onChange={e => setSelectedExam(e.target.value)}>
+          <option value="">请选择考试</option>
+          {exams.map((e: any) => <option key={e.id} value={e.id}>{e.name}{e.grade ? ` (${e.grade})` : ''}</option>)}
+        </select>
+      </div>
+      {selectedExam && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+          {SUBJECTS.map(sub => {
+            const maxScore = getMaxScore(sub);
+            return (
+            <div key={sub} className="bg-gray-50 rounded-lg p-4 text-center">
+              <div className="text-sm text-gray-500 mb-1">{sub}</div>
+              <div className={`text-2xl font-bold ${scores[sub] !== undefined ? 'text-blue-600' : 'text-gray-300'}`}>
+                {scores[sub] !== undefined ? scores[sub] : '-'}
+              </div>
+              {scores[sub] !== undefined && <div className="text-xs text-gray-400 mt-1">满分 {maxScore}</div>}
+            </div>);
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ====================== My Analysis (Student Line Charts) ======================
+function MyAnalysisSection({ user }: any) {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user?.student_id) return;
+    fetch(`/api/scores/analysis?studentId=${user.student_id}`)
+      .then(r => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  const colors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899'];
+  const subjectsWithData = data.filter((s: any) => s.data.length > 0);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-lg font-bold">成绩分析</h2>
+      {loading ? (
+        <p className="text-gray-400 text-center py-8">加载中...</p>
+      ) : subjectsWithData.length === 0 ? (
+        <p className="text-gray-400 text-center py-8">暂无成绩数据</p>
+      ) : (
+        subjectsWithData.map((s: any, i: number) => (
+          <div key={s.subject} className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="font-bold text-base mb-4" style={{ color: colors[i % colors.length] }}>
+              {s.subject} 成绩趋势
+            </h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={s.data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="examName" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0, 120]} tick={{ fontSize: 12 }} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div className="bg-white border rounded-lg shadow-lg p-3 text-sm">
+                      <p className="font-medium mb-1">{label}</p>
+                      <p style={{ color: colors[i % colors.length] }}>
+                        {s.subject}: <span className="font-bold">{payload[0].value}</span>
+                      </p>
+                    </div>
+                  );
+                }} />
+                <Line type="monotone" dataKey="score" stroke={colors[i % colors.length]}
+                  strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ====================== Score Entry ======================
 function ScoreSection({ students }: any) {
   const [exams, setExams] = useState<any[]>([]);
@@ -324,6 +446,7 @@ function ScoreSection({ students }: any) {
   const [scores, setScores] = useState<Record<string, any>>({});
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => { fetch('/api/exams').then(r => r.json()).then(setExams); }, []);
 
@@ -376,6 +499,22 @@ function ScoreSection({ students }: any) {
     setTimeout(() => setMessage(''), 3000);
   };
 
+  const handleImportScores = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setImporting(true);
+    const fd = new FormData(); fd.append('file', file); fd.append('type', 'scores');
+    if (selectedExam) fd.append('examId', selectedExam);
+    const res = await fetch('/api/import', { method: 'POST', body: fd });
+    const data = await res.json();
+    alert(`导入完成: ${data.count} 条`);
+    setImporting(false);
+    if (selectedExam) loadScores();
+  };
+
+  const handleExportScores = () => {
+    if (selectedExam) window.open(`/api/export?type=scores&examId=${selectedExam}`, '_blank');
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
       <div className="flex justify-between items-center mb-4">
@@ -392,16 +531,19 @@ function ScoreSection({ students }: any) {
         </div>
         {selectedExam && (
           <>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <button onClick={saveAll} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
                 {saving ? '保存中...' : '💾 一键保存'}
               </button>
-              <a href={`/api/export?type=scores&examId=${selectedExam}`}
-                className="px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm hover:bg-green-100">
+              <button onClick={handleExportScores} className="px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm hover:bg-green-100">
                 📤 导出
-              </a>
+              </button>
+              <label className="px-4 py-2 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-sm hover:bg-orange-100 cursor-pointer">
+                📥 导入
+                <input type="file" accept=".xlsx,.xls" onChange={handleImportScores} className="hidden" disabled={importing} />
+              </label>
+              {message && <span className="text-sm text-blue-600">{message}</span>}
             </div>
-            {message && <span className="text-sm text-blue-600">{message}</span>}
           </>
         )}
       </div>
@@ -413,7 +555,7 @@ function ScoreSection({ students }: any) {
               <tr className="border-b bg-gray-50">
                 <th className="p-3 text-left">姓名</th>
                 <th className="p-3 text-left">班级</th>
-                {SUBJECTS.map(sub => <th key={sub} className="p-3 text-center">{sub}</th>)}
+                {SUBJECTS.map(sub => <th key={sub} className="p-3 text-center">{sub}<br /><span className="text-xs text-gray-400">满分{getMaxScore(sub)}</span></th>)}
               </tr>
             </thead>
             <tbody>
@@ -421,16 +563,18 @@ function ScoreSection({ students }: any) {
                 <tr key={s.id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-medium">{s.name}</td>
                   <td className="p-3 text-gray-500">{s.class}</td>
-                  {SUBJECTS.map(sub => (
+                  {SUBJECTS.map(sub => {
+                    const maxScore = getMaxScore(sub);
+                    return (
                     <td key={sub} className="p-2 text-center">
                       <input
-                        type="number" min="0" max="100"
+                        type="number" min="0" max={maxScore}
                         className="w-16 px-2 py-1.5 border rounded text-center text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                         value={scores[s.id]?.[sub] ?? ''}
                         onChange={e => updateScore(s.id, sub, e.target.value)}
                       />
-                    </td>
-                  ))}
+                    </td>);
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -442,17 +586,20 @@ function ScoreSection({ students }: any) {
 }
 
 // ====================== Score Comparison ======================
-function CompareSection() {
+function CompareSection({ user }: any) {
   const [exams, setExams] = useState<any[]>([]);
   const [exam1, setExam1] = useState('');
   const [exam2, setExam2] = useState('');
   const [data, setData] = useState<any[]>([]);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => { fetch('/api/exams').then(r => r.json()).then(setExams); }, []);
 
   const loadCompare = async () => {
     if (!exam1 || !exam2) return;
-    const res = await fetch(`/api/exams/compare?examId=${exam1}&examId2=${exam2}`);
+    let url = `/api/exams/compare?examId=${exam1}&examId2=${exam2}`;
+    if (!isAdmin && user?.student_id) url += `&studentId=${user.student_id}`;
+    const res = await fetch(url);
     setData(await res.json());
   };
 
@@ -523,21 +670,30 @@ function StatsSection() {
   const [exams, setExams] = useState<any[]>([]);
   const [selectedExam, setSelectedExam] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
+  const [selectedClass, setSelectedClass] = useState('');
   const [stats, setStats] = useState<any[]>([]);
+  const [classes, setClasses] = useState<string[]>([]);
 
-  useEffect(() => { fetch('/api/exams').then(r => r.json()).then(setExams); }, []);
+  useEffect(() => {
+    fetch('/api/exams').then(r => r.json()).then(setExams);
+    fetch('/api/students').then(r => r.json()).then((data: any[]) => {
+      const unique = [...new Set(data.map((s: any) => s.class).filter(Boolean))] as string[];
+      setClasses(unique.sort());
+    });
+  }, []);
 
   const fetchStats = async () => {
     const params = new URLSearchParams();
     if (selectedExam) params.set('examId', selectedExam);
     if (selectedGrade) params.set('grade', selectedGrade);
+    if (selectedClass) params.set('class', selectedClass);
     const res = await fetch('/api/stats?' + params);
     setStats(await res.json());
   };
 
-  useEffect(() => { fetchStats(); }, [selectedExam, selectedGrade]);
+  useEffect(() => { fetchStats(); }, [selectedExam, selectedGrade, selectedClass]);
 
-  const chartData = stats.map(s => ({ name: s.subject, 平均分: s.平均分, 最高分: s.最高分, 最低分: s.最低分 }));
+  const chartData = stats.map(s => ({ name: s.subject, 平均分: s.平均分, 最高分: s.最高分, 最高分学生: s.最高分学生, 最低分: s.最低分 }));
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -549,10 +705,16 @@ function StatsSection() {
             <option value="">所有考试</option>{exams.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
-        <div className="w-40">
+        <div className="w-36">
           <label className="text-xs text-gray-500 mb-1 block">年级</label>
-          <select className="w-full px-3 py-2 border rounded-lg text-sm" value={selectedGrade} onChange={e => setSelectedGrade(e.target.value)}>
+          <select className="w-full px-3 py-2 border rounded-lg text-sm" value={selectedGrade} onChange={e => { setSelectedGrade(e.target.value); setSelectedClass(''); }}>
             <option value="">全部</option>{GRADES.map(g => <option key={g}>{g}</option>)}
+          </select>
+        </div>
+        <div className="w-36">
+          <label className="text-xs text-gray-500 mb-1 block">班级</label>
+          <select className="w-full px-3 py-2 border rounded-lg text-sm" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
+            <option value="">全部</option>{classes.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
       </div>
@@ -564,8 +726,21 @@ function StatsSection() {
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
-              <YAxis domain={[0, 100]} />
-              <Tooltip />
+              <YAxis domain={[0, 120]} />
+              <Tooltip content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0]?.payload;
+                return (
+                  <div className="bg-white border rounded-lg shadow-lg p-3 text-sm">
+                    <p className="font-medium mb-1">{d?.name}</p>
+                    <p>平均分: <span className="text-blue-600 font-bold">{d?.平均分}</span></p>
+                    <p>最高分: <span className="text-green-600 font-bold">{d?.最高分}</span>
+                      {d?.最高分学生 && <span className="text-green-700 ml-1">({d.最高分学生})</span>}
+                    </p>
+                    <p>最低分: <span className="text-red-600 font-bold">{d?.最低分}</span></p>
+                  </div>
+                );
+              }} />
               <Legend />
               <Bar dataKey="平均分" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               <Bar dataKey="最高分" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -582,6 +757,7 @@ function StatsSection() {
               <th className="p-3 text-left">科目</th>
               <th className="p-3 text-center">平均分</th>
               <th className="p-3 text-center">最高分</th>
+              <th className="p-3 text-center">最高分学生</th>
               <th className="p-3 text-center">最低分</th>
               <th className="p-3 text-center">参考人数</th>
             </tr>
@@ -594,6 +770,7 @@ function StatsSection() {
                   <span className="text-lg font-bold text-blue-600">{s.平均分}</span>
                 </td>
                 <td className="p-3 text-center text-green-600 font-medium">{s.最高分}</td>
+                <td className="p-3 text-center text-green-700 text-sm">{s.最高分学生 || '-'}</td>
                 <td className="p-3 text-center text-red-600 font-medium">{s.最低分}</td>
                 <td className="p-3 text-center text-gray-500">{s.人数}</td>
               </tr>

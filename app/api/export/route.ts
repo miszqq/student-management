@@ -40,14 +40,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '参数错误' }, { status: 400 });
     }
 
+    const filename = type === 'students' ? '学生信息' : '成绩';
     const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     return new NextResponse(buf, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename=${type === 'students' ? '学生信息' : '成绩'}.xlsx`
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}.xlsx`
       }
     });
-  } catch (error) {
-    return NextResponse.json({ error: '导出失败' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Export error:', error);
+    return NextResponse.json({ error: error?.message || '导出失败' }, { status: 500 });
   }
 }

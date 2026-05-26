@@ -6,12 +6,18 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const examId = searchParams.get('examId');
     const examId2 = searchParams.get('examId2');
+    const studentId = searchParams.get('studentId');
 
     if (!examId || !examId2) {
       return NextResponse.json({ error: '需要两个考试ID' }, { status: 400 });
     }
 
-    const students = db.prepare('SELECT * FROM students ORDER BY class, student_id').all() as any[];
+    let students: any[];
+    if (studentId) {
+      students = db.prepare('SELECT * FROM students WHERE id = ?').all(studentId) as any[];
+    } else {
+      students = db.prepare('SELECT * FROM students ORDER BY class, student_id').all() as any[];
+    }
     const subjects = ['语文', '数学', '英语', '物理', '化学', '生物'];
 
     const result = students.map(s => {

@@ -45,7 +45,7 @@ export function initDB() {
       student_id INTEGER NOT NULL,
       exam_id INTEGER NOT NULL DEFAULT 0,
       subject TEXT NOT NULL,
-      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 120),
       exam_date DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
       FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE

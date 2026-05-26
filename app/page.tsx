@@ -45,8 +45,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">教师登录</CardTitle>
-          <CardDescription>请输入您的账号密码</CardDescription>
+          <CardTitle className="text-2xl">教学管理系统登录</CardTitle>
+          <CardDescription>教师或学生请使用账号密码登录</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
