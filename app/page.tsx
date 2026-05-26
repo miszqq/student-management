@@ -80,9 +80,6 @@ export default function LoginPage() {
               {loading ? '登录中...' : '登录'}
             </Button>
           </form>
-          <div className="mt-4 text-sm text-gray-500 text-center">
-            默认账号: admin / 密码: admin123
-          </div>
         </CardContent>
       </Card>
     </div>

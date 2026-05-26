@@ -1,57 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const subject = searchParams.get('subject');
-
-    let query = `
-      SELECT s.id, s.name, s.class, s.student_id,
-        json_object(
-          '语文', (SELECT score FROM scores WHERE student_id = s.id AND subject = '语文'),
-          '数学', (SELECT score FROM scores WHERE student_id = s.id AND subject = '数学'),
-          '英语', (SELECT score FROM scores WHERE student_id = s.id AND subject = '英语'),
-          '物理', (SELECT score FROM scores WHERE student_id = s.id AND subject = '物理'),
-          '化学', (SELECT score FROM scores WHERE student_id = s.id AND subject = '化学'),
-          '生物', (SELECT score FROM scores WHERE student_id = s.id AND subject = '生物')
-        ) as scores
+    const scores = db.prepare(`
+      SELECT s.id, s.name, s.class, s.student_id as studentId,
+        e.name as exam_name, e.id as exam_id,
+        json_group_array(json_object('subject', sc.subject, 'score', sc.score)) as subjects
       FROM students s
+      LEFT JOIN scores sc ON s.id = sc.student_id
+      LEFT JOIN exams e ON sc.exam_id = e.id
+      GROUP BY s.id, sc.exam_id
       ORDER BY s.class, s.student_id
-    `;
+    `).all();
 
-    const results = db.prepare(query).all().map((r: any) => ({
-      ...r,
-      studentId: r.student_id,
-      student_id: undefined,
-      scores: JSON.parse(r.scores),
-      total: Object.values(JSON.parse(r.scores)).reduce((a: number, b: any) => a + (b || 0), 0)
-    }));
-
-    const withRank = results.map((r: any, i: number) => ({
-      ...r,
-      rank: i + 1
-    }));
-
-    return NextResponse.json(withRank);
+    return NextResponse.json(scores);
   } catch (error) {
-    return NextResponse.json({ error: '获取成绩失败' }, { status: 500 });
+    return NextResponse.json({ error: '获取失败' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { studentId, subject, score } = await request.json();
+    const { studentId, examId, subject, score } = await request.json();
+    const existing = db.prepare('SELECT id FROM scores WHERE student_id = ? AND exam_id = ? AND subject = ?').get(studentId, examId, subject) as any;
 
-    db.prepare(`
-      INSERT INTO scores (student_id, subject, score)
-      VALUES (?, ?, ?)
-      ON CONFLICT(student_id, subject) DO UPDATE SET score = excluded.score
-    `).run(studentId, subject, score);
-
+    if (existing) {
+      db.prepare('UPDATE scores SET score = ? WHERE id = ?').run(score, existing.id);
+    } else {
+      db.prepare('INSERT INTO scores (student_id, exam_id, subject, score) VALUES (?, ?, ?, ?)').run(studentId, examId, subject, score);
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: '保存成绩失败' }, { status: 500 });
+    return NextResponse.json({ error: '保存失败' }, { status: 500 });
   }
 }
 
@@ -59,19 +40,18 @@ export async function DELETE(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const studentId = searchParams.get('studentId');
+    const examId = searchParams.get('examId');
     const subject = searchParams.get('subject');
 
-    if (!studentId || !subject) {
-      return NextResponse.json({ error: '缺少参数' }, { status: 400 });
-    }
+    let query = 'DELETE FROM scores WHERE 1=1';
+    const params: any[] = [];
+    if (studentId) { query += ' AND student_id = ?'; params.push(studentId); }
+    if (examId) { query += ' AND exam_id = ?'; params.push(examId); }
+    if (subject) { query += ' AND subject = ?'; params.push(subject); }
 
-    db.prepare('DELETE FROM scores WHERE student_id = ? AND subject = ?').run(
-      parseInt(studentId),
-      subject
-    );
-
+    db.prepare(query).run(...params);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: '删除成绩失败' }, { status: 500 });
+    return NextResponse.json({ error: '删除失败' }, { status: 500 });
   }
 }
